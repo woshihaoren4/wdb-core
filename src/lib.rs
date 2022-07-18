@@ -1,5 +1,6 @@
 mod core;
 mod config;
+mod util;
 
 #[cfg(test)]
 mod tests {

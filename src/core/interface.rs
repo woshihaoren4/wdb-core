@@ -1,11 +1,11 @@
 use trait_async::trait_async;
 use anyhow::Result;
-use async_channel::{Receiver,Sender};
-use std::collections::HashMap;
 use wd_event::Context;
 use serde_json::Value;
+use crate::config::Config;
+use std::sync::Arc;
 
-pub trait Serialization{
+pub trait ToBytes {
     fn to_bytes(&self)->Vec<u8>;
 }
 pub trait Tags{
@@ -15,11 +15,11 @@ pub trait CallBack{
     fn call_back(&mut self,_: Context);
 }
 
-pub trait Element:Serialization+Tags+CallBack+Send+Sync{
+pub trait Element: ToBytes +Tags+CallBack+Send+Sync{
 }
 
 impl<T> Element for T
-    where T:Serialization+Tags+CallBack+Send+Sync
+    where T: ToBytes +Tags+CallBack+Send+Sync
 {}
 
 // type Element = dyn Serialization + From<Vec<u8>> + Tags + CallBack + Send + Sync;
@@ -28,21 +28,27 @@ impl<T> Element for T
 pub trait Bucket<T>
 where T:Element+From<Vec<u8>>
 {
+    async fn init(&self,_:Context)->Result<BucketMeta>;
+    async fn close(&self,_:Context)->Result<()>;
+
     async fn add(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
     async fn delete(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
     async fn update(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
-    async fn find(&self,_: Context, elms:Vec<u64>) ->Result<Vec<T>>;
+    async fn find(&self,_: Context, elms:Vec<Box<dyn Tags>>) ->Result<Vec<T>>;
 }
 
 #[trait_async]
 pub trait BucketBuilder{
-    async fn build(&self,_:Value) -> Box<dyn Bucket<Box<dyn Element>>>;
+    async fn metadata(&self) ->BuilderMeta;
+    async fn init(&self,_: Context,_: Config) -> Arc<dyn Bucket<Box<dyn Element>>>;
+    async fn build(&self,_: Context,_:Value) -> Arc<dyn Bucket<Box<dyn Element>>>;
 }
 
-// //存储索引的接口
-// #[trait_async]
-// pub trait Index {
-//      async fn insert(&mut self,tag:IndexValue)->Result<()>;
-//      async fn delete(&mut self,tag:IndexValue)->Result<()>;
-//      async fn find(&self,eq:IndexValue,mix:IndexValue,max:IndexValue,sender:Sender<Result<u64>>);
-// }
+#[derive(Default,Hash,Clone)]
+pub struct BucketMeta{
+    pub name:String
+}
+#[derive(Default,Hash)]
+pub struct BuilderMeta{
+    pub bucket_type:String,
+}

@@ -12,4 +12,5 @@ anyhow = "1.0.57"
 async-channel = "1.6"
 wd_event = "0.3.3"
 serde_json = "1.0.81"
-serde = "1.0.137"
+serde = {version = "1.0.137",features= ["derive"]}
+wd_run = "0.2"

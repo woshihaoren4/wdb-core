@@ -1,0 +1,6 @@
+[server]
+worker_path = "E:/github.com/wdb-core/bucket"
+#default_engine = "logdb"
+
+[bucket_engine.logdb]
+des = "hello world"
