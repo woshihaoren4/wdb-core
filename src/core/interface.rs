@@ -1,54 +1,41 @@
-use trait_async::trait_async;
-use anyhow::Result;
-use wd_event::Context;
-use serde_json::Value;
-use crate::config::Config;
+use std::collections::HashMap;
 use std::sync::Arc;
+use async_channel::Receiver;
+use crate::common::WDBResult;
 
-pub trait ToBytes {
-    fn to_bytes(&self)->Vec<u8>;
-}
-pub trait Tags{
-    fn tags(&self)->Vec<(String,i64)>;
-}
-pub trait CallBack{
-    fn call_back(&mut self,_: Context);
-}
-
-pub trait Element: ToBytes +Tags+CallBack+Send+Sync{
+//数据区
+#[async_trait::async_trait]
+pub trait BucketDataBase{
+    async fn set(&self,key:u64,value:Vec<u8>)->anyhow::Result<u64>; //插入后返回偏移量
+    async fn find(&self,offset:u64)->anyhow::Result<Arc<Vec<u8>>>;
 }
 
-impl<T> Element for T
-    where T: ToBytes +Tags+CallBack+Send+Sync
-{}
-
-// type Element = dyn Serialization + From<Vec<u8>> + Tags + CallBack + Send + Sync;
-
-#[trait_async]
-pub trait Bucket<T>
-where T:Element+From<Vec<u8>>
-{
-    async fn init(&self,_:Context)->Result<BucketMeta>;
-    async fn close(&self,_:Context)->Result<()>;
-
-    async fn add(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
-    async fn delete(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
-    async fn update(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
-    async fn find(&self,_: Context, elms:Vec<Box<dyn Tags>>) ->Result<Vec<T>>;
+//索引
+#[async_trait::async_trait]
+pub trait BucketIndex{
+    async fn push(&self,key:u64,offset:u64);
+    async fn find(&self,key:u64)->Option<Vec<u64>>;
 }
 
-#[trait_async]
-pub trait BucketBuilder{
-    async fn metadata(&self) ->BuilderMeta;
-    async fn init(&self,_: Context,_: Config) -> Arc<dyn Bucket<Box<dyn Element>>>;
-    async fn build(&self,_: Context,_:Value) -> Arc<dyn Bucket<Box<dyn Element>>>;
+//编解码器
+// #[async_trait::async_trait]
+pub trait Codec:Send+Sync{
+    fn encode(&self,key:u64,value:Arc<Vec<u8>>)->Vec<u8>;
+    fn decode(&self,data:Vec<u8>)->WDBResult<(u64,Vec<u8>)>;  //返回key value
 }
 
-#[derive(Default,Hash,Clone)]
-pub struct BucketMeta{
-    pub name:String
+//区块
+#[async_trait::async_trait]
+pub trait Block:Send+Sync{
+    async fn append(&self,key:u64,value:Arc<Vec<u8>>)->WDBResult<u64>;  //返回偏移量
+    async fn get(&self,offset:u64)->WDBResult<(u64,Vec<u8>)>;
+    async fn traversal(&self)-> Receiver<WDBResult<(u64,u64,Vec<u8>)>>;
+    async fn size(&self)->WDBResult<u64>;
 }
-#[derive(Default,Hash)]
-pub struct BuilderMeta{
-    pub bucket_type:String,
+//区块管理器
+#[async_trait::async_trait]
+pub trait DataBaseBlockManager{
+    async fn init_block(&self)->WDBResult<Vec<(u32,Arc<dyn Block>)>>;
+    async fn create_block(&self,block_sn:u32)->WDBResult<Arc<dyn Block>>;
+    fn block_size(&self)->u32;  //1mb
 }

@@ -1,6 +1,6 @@
 mod core;
-mod config;
-mod util;
+mod local_store;
+mod common;
 
 #[cfg(test)]
 mod tests {
