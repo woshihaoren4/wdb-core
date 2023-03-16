@@ -7,7 +7,7 @@ use crate::common::WDBResult;
 #[async_trait::async_trait]
 pub trait BucketDataBase{
     async fn set(&self,key:u64,value:Vec<u8>)->anyhow::Result<u64>; //插入后返回偏移量
-    async fn find(&self,offset:u64)->anyhow::Result<Arc<Vec<u8>>>;
+    async fn get(&self, offset:u64) ->anyhow::Result<Arc<Vec<u8>>>;
 }
 
 //索引
@@ -28,14 +28,25 @@ pub trait Codec:Send+Sync{
 #[async_trait::async_trait]
 pub trait Block:Send+Sync{
     async fn append(&self,key:u64,value:Arc<Vec<u8>>)->WDBResult<u64>;  //返回偏移量
-    async fn get(&self,offset:u64)->WDBResult<(u64,Vec<u8>)>;
+    async fn get(&self,offset:u64)->WDBResult<(u64,Arc<Vec<u8>>)>;
     async fn traversal(&self)-> Receiver<WDBResult<(u64,u64,Vec<u8>)>>;
     async fn size(&self)->WDBResult<u64>;
+    // async fn restore(&self, position:u64) ->anyhow::Result<()>;  //恢复数据
+    fn path(&self)->String;
 }
 //区块管理器
 #[async_trait::async_trait]
-pub trait DataBaseBlockManager{
+pub trait DataBaseBlockManager:Send+Sync{
     async fn init_block(&self)->WDBResult<Vec<(u32,Arc<dyn Block>)>>;
     async fn create_block(&self,block_sn:u32)->WDBResult<Arc<dyn Block>>;
-    fn block_size(&self)->u32;  //1mb
+    fn block_size(&self)->u32;
+}
+
+//node缓存
+#[async_trait::async_trait]
+pub trait NodeCache:Send+Sync{
+    async fn get(&self, offset: u64) -> Option<Arc<Vec<u8>>>;
+    async fn set(&self, offset: u64, value:Arc<Vec<u8>>);
+    async fn reset(&self);
+
 }

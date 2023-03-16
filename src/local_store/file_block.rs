@@ -10,6 +10,7 @@ use crate::core::{Block, Codec};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 pub struct FileBlock{
+    path:String,
     size: u32,
     codec : Arc<dyn Codec>,
     file: Arc<Mutex<File>>
@@ -21,11 +22,11 @@ impl FileBlock {
             .read(true)
             .append(true)
             .create(true)
-            .open(path).await?;
+            .open(path.as_str()).await?;
         let file = Mutex::new(file).arc();
-        FileBlock{size,codec,file}.ok()
+        FileBlock{path,size,codec,file}.ok()
     }
-    pub async fn scan(size:u32,codec: Arc<dyn Codec>,file: Arc<Mutex<File>>,sender:Sender<WDBResult<(u64, u64, Vec<u8>)>>){
+    pub async fn scan(size:u32,codec: Arc<dyn Codec>,file: Arc<Mutex<File>>,sender:Sender<WDBResult<(u64, u64, Vec<u8>)>>)->anyhow::Result<()>{
         let mut file =file.lock().await;
         let mut i = 0 ;
         loop{
@@ -34,62 +35,63 @@ impl FileBlock {
                 Ok(o) => {
                     if o == 0 {
                         sender.clone();
-                        return;
+                        return ().ok();
                     }else if o != 4 {
-                        sender.send(WDBError::BlockAbnormal(i).err()).await.expect("FileBlock.scan send failed");
-                        return;
+                        sender.send(WDBError::BlockAbnormal(i).err()).await?;
+                        return ().ok();
                     }
                     o
                 }
                 Err(e) => {
                     wd_log::log_error_ln!("BlockAbnormal {}",e);
-                    sender.send(WDBError::BlockAbnormal(i).err()).await.expect("FileBlock.scan send failed");
-                    return;
+                    sender.send(WDBError::BlockAbnormal(i).err()).await?;
+                    return ().ok();
                 }
             };
             let val_len = u32::from_le_bytes([len_buf[0], len_buf[1], len_buf[2], len_buf[3]]);
             if val_len > size {
 
                 wd_log::log_error_ln!("BlockAbnormal node len({}) > max size({})",val_len,size);
-                sender.send(WDBError::BlockAbnormal(i).err()).await.expect("FileBlock.scan send failed");
-                return;
+                sender.send(WDBError::BlockAbnormal(i).err()).await?;
+                return ().ok();
             }
             if val_len < 8 {
                 wd_log::log_error_ln!("BlockAbnormal node len({}) < min size(8)",val_len);
-                sender.send(WDBError::BlockAbnormal(i).err()).await.expect("FileBlock.scan send failed");
-                return;
+                sender.send(WDBError::BlockAbnormal(i).err()).await?;
+                return ().ok();
             }
             let mut buf = vec![0;val_len as usize];
             let len = match file.read(&mut buf).await{
                 Ok(o) => {
                     if o != val_len as usize {
-                        sender.send(WDBError::BlockAbnormal(i).err()).await.expect("FileBlock.scan send failed");
-                        return;
+                        sender.send(WDBError::BlockAbnormal(i).err()).await?;
+                        return ().ok();
                     }
                     o
                 }
                 Err(e) => {
                     wd_log::log_error_ln!("BlockAbnormal {}",e);
-                    sender.send(WDBError::BlockAbnormal(i).err()).await.expect("FileBlock.scan send failed");
-                    return;
+                    sender.send(WDBError::BlockAbnormal(i).err()).await?;
+                    return ().ok();
                 }
             };
             if len == 8 {
                 let key = u64::from_le_bytes([buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7]]);
-                sender.send((i,key,Vec::new()).ok()).await.expect("FileBlock.scan send failed");
+                sender.send((i,key,Vec::new()).ok()).await?;
             }else{
                 match codec.decode(buf){
                     Ok((k,v)) => {
-                        sender.send((i,k,v).ok()).await.expect("FileBlock.scan send failed");
+                        sender.send((i,k,v).ok()).await?;
                     }
                     Err(e) => {
                         wd_log::log_error_ln!("BlockAbnormal decode error:{}",e);
-                        sender.send(WDBError::BlockAbnormal(i).err()).await.expect("FileBlock.scan send failed");
+                        sender.send(WDBError::BlockAbnormal(i).err()).await?;
                     }
                 };
             }
             i += val_len as u64 + 4;
         }
+        return ().ok()
     }
 }
 
@@ -107,13 +109,14 @@ impl Block for FileBlock{
         offset.ok()
     }
 
-    async fn get(&self, offset: u64) -> WDBResult<(u64,Vec<u8>)> {
+    async fn get(&self, offset: u64) -> WDBResult<(u64,Arc<Vec<u8>>)> {
         let mut file = self.file.lock().await;
         file.seek(SeekFrom::Start(offset)).await?;
         let len = file.read_u32_le().await?;
         let mut buf = vec![0; len as usize];
         file.read_exact(&mut buf).await?;
-        self.codec.decode(buf)
+        let (k,v) = self.codec.decode(buf)?;
+        (k,v.arc()).ok()
     }
 
     async fn traversal(&self) -> Receiver<WDBResult<(u64, u64, Vec<u8>)>> {
@@ -126,6 +129,14 @@ impl Block for FileBlock{
         let mut file = self.file.lock().await;
         file.metadata().await?.len().ok()
     }
+
+    fn path(&self) -> String {
+        self.path.clone()
+    }
+
+    // async fn restore(&self,_position:u64) -> anyhow::Result<()> {
+    //     return anyhow::anyhow!("unsupported restore").err()
+    // }
 }
 
 #[cfg(test)]
@@ -154,13 +165,20 @@ mod test{
         let receiver = block.traversal().await;
         while !receiver.is_closed() {
             let result = receiver.recv().await;
-            let (offset,key,value) = match result {
+            let result = match result {
                 Ok(o)=>o,
                 Err(e)=>{
                     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                     continue
                 }
-            }.expect("from file parse error");
+            };
+            let (offset,key,value) = match result {
+                Ok(o) =>o,
+                Err(e) => {
+                    wd_log::log_error_ln!("FileBlock.scan parse failed:{}",e);
+                    break
+                }
+            };
             println!("offset[{}] key[{}] ---> {}",offset,key,String::from_utf8_lossy(value.as_slice()));
         }
         println!("test ove")

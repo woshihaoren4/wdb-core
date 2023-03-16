@@ -20,7 +20,7 @@ impl Bucket {
         };
         let mut res = vec![];
         for i in offset.into_iter(){
-            let data = self.db.find(i).await?;
+            let data = self.db.get(i).await?;
             res.push((i,data))
         }
         return res.ok()
