@@ -1,7 +1,9 @@
 use std::io;
 use std::io::SeekFrom;
+use std::ops::{Add, Deref, DerefMut};
 use std::sync::Arc;
-use async_channel::{Receiver, Sender};
+use std::thread::sleep;
+use async_channel::{Receiver, RecvError, Sender};
 use tokio::fs::File;
 use tokio::sync::{Mutex, RwLock};
 use wd_tools::{PFArc, PFErr, PFOk};
@@ -13,7 +15,9 @@ pub struct FileBlock{
     path:String,
     size: u32,
     codec : Arc<dyn Codec>,
-    file: Arc<Mutex<File>>
+    file: Arc<Mutex<File>>,
+    buffer: Sender<Vec<u8>>,
+    offset: Arc<Mutex<u32>>,
 }
 
 impl FileBlock {
@@ -23,8 +27,13 @@ impl FileBlock {
             .append(true)
             .create(true)
             .open(path.as_str()).await?;
+        let offset = file.metadata().await?.len() as u32;
+        let offset = Mutex::new(offset).arc();
         let file = Mutex::new(file).arc();
-        FileBlock{path,size,codec,file}.ok()
+        //开启缓存模式
+        let buffer = FileBlock::start_cache_schedule(file.clone(), 1024 * 1024 * 4, 1024*16).await;
+
+        FileBlock{path,size,codec,file,buffer,offset}.ok()
     }
     pub async fn scan(size:u32,codec: Arc<dyn Codec>,file: Arc<Mutex<File>>,sender:Sender<WDBResult<(u64, u64, Vec<u8>)>>)->anyhow::Result<()>{
         let mut file =file.lock().await;
@@ -93,20 +102,72 @@ impl FileBlock {
         }
         return ().ok()
     }
-}
 
-#[async_trait::async_trait]
-impl Block for FileBlock{
-    async fn append(&self,key:u64, value: Arc<Vec<u8>>) -> WDBResult<u64> {
-        let buf = self.codec.encode(key,value.clone());
+    pub async fn real_time_append(&self,key:u64, value: &[u8]) -> WDBResult<u64> {
+        let buf = self.codec.encode(key,value);
 
         let mut file = self.file.lock().await;
 
         let offset = file.metadata().await?.len();
+        if offset >= self.size as u64 {
+            return WDBError::BlockFulled.err()
+        }
+
         if let Err(e) = file.write_all(buf.as_slice()).await {
             return WDBError::from(e).err()
         }
         offset.ok()
+    }
+    pub async fn buffer_append(&self,key:u64, value: &[u8]) -> WDBResult<u64>{
+        let buf = self.codec.encode(key,value);
+        let len = buf.len() as u32;
+        let mut offset = self.offset.lock().await;
+
+        if offset.deref() >= &self.size {
+            return WDBError::BlockFulled.err()
+        }
+
+        let result = offset.deref().clone() as u64;
+        self.buffer.send(buf).await.expect("FileBlock.buffer_append failed");
+        *(offset.deref_mut()) += len;
+        return result.ok();
+    }
+
+    pub async fn start_cache_schedule(file:Arc<Mutex<File>>,buf_max:u32,chan_max:usize)->Sender<Vec<u8>>{
+        let buf_max = buf_max as usize;
+        let (sender,receiver) = async_channel::bounded(chan_max);
+        tokio::spawn(async move{
+            while !receiver.is_closed() {
+                if receiver.is_empty() {
+                    tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+                    continue
+                }
+                let mut buf = vec![];
+                while buf.len() < buf_max && !receiver.is_empty() {
+                    let mut data = match receiver.recv().await {
+                        Ok(o) => {o}
+                        Err(_) => {
+                            break
+                        }
+                    };
+                    buf.append(&mut data);
+                }
+                let mut file = file.lock().await;
+                if let Err(e) = file.write_all(buf.as_slice()).await {
+                    wd_log::log_panic!("file append error{}",e);
+                }
+                drop(file);
+            }
+        });
+        return sender;
+    }
+}
+
+#[async_trait::async_trait]
+impl Block for FileBlock{
+    async fn append(&self,key:u64, value: &[u8]) -> WDBResult<u64> {
+        // self.real_time_append(key,value).await
+        self.buffer_append(key,value).await
     }
 
     async fn get(&self, offset: u64) -> WDBResult<(u64,Arc<Vec<u8>>)> {
@@ -139,6 +200,12 @@ impl Block for FileBlock{
     // }
 }
 
+impl Drop for FileBlock {
+    fn drop(&mut self) {
+        self.buffer.close();
+    }
+}
+
 #[cfg(test)]
 mod test{
     use std::sync::Arc;
@@ -151,8 +218,8 @@ mod test{
     #[tokio::test]
     async fn test_file_block(){
         let block = FileBlock::new("./0.wdb".into(), Arc::new(NodeValeCodec),1024*1024).await.expect("FileBlock.new failed");
-        let data = Vec::from("hello world").arc();
-        let offset = block.append(456,data.clone()).await.expect("FileBlock.append failed");
+        let data = b"hello world";
+        let offset = block.append(456,&data[..]).await.expect("FileBlock.append failed");
         println!("offset-->{}",offset);
         let (key,value) = block.get(offset).await.expect("FileBlock.get failed");
         println!("key->{},value->[{}]",key,String::from_utf8_lossy(value.as_slice()).to_string());
@@ -161,7 +228,7 @@ mod test{
     }
     #[tokio::test]
     async fn test_file_block_scan(){
-        let block = FileBlock::new("./0.wdb".into(), Arc::new(NodeValeCodec),1024*1024).await.expect("FileBlock.new failed");
+        let block = FileBlock::new("./database/0.wdb".into(), Arc::new(NodeValeCodec),1024*1024).await.expect("FileBlock.new failed");
         let receiver = block.traversal().await;
         while !receiver.is_closed() {
             let result = receiver.recv().await;
@@ -181,7 +248,7 @@ mod test{
             };
             println!("offset[{}] key[{}] ---> {}",offset,key,String::from_utf8_lossy(value.as_slice()));
         }
-        println!("test ove")
+        println!("test ove");
     }
 
 }

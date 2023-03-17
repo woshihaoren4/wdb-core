@@ -9,7 +9,7 @@ pub struct Bucket{
 
 impl Bucket {
     pub async fn set_raw(&self,key:u64,value:Vec<u8>)->anyhow::Result<u64>{
-        let offset = self.db.set(key, value).await?;
+        let offset = self.db.set(key, value.as_slice()).await?;
         // self.wal.append(key,offset).await?;
         self.index.push(key,offset);offset.ok()
     }

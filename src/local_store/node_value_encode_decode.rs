@@ -26,16 +26,16 @@ impl NodeValeCodec{
 
 // #[async_trait::async_trait]
 impl Codec for NodeValeCodec {
-     fn encode(&self, key: u64, mut value: Arc<Vec<u8>>) -> Vec<u8> {
+     fn encode(&self, key: u64, mut value: &[u8]) -> Vec<u8> {
         let mut key_buf = key.to_le_bytes().to_vec();
         let mut sign_buf = if value.is_empty(){
             Vec::new()
         }else{
-            NodeValeCodec::simple_md5(value.as_slice())
+            NodeValeCodec::simple_md5(value)
         };
         let len = (key_buf.len() + sign_buf.len() + value.len()) as u32;
         let mut buf = len.to_le_bytes().to_vec();
-        let mut value_buf = value.as_ref().clone();
+        let mut value_buf = value.to_vec();
         buf.append(&mut key_buf);
         buf.append(&mut value_buf);
         buf.append(&mut sign_buf);
@@ -74,7 +74,7 @@ mod test{
     #[test]
     fn test_encode_decode(){
         let key = 123u64;
-        let value = b"hello world".to_vec().arc();
+        let value = b"hello world".as_slice();
 
         let mut data = NodeValeCodec.encode(key, value.clone());
         let value_len = u32::from_le_bytes([data[0],data[1],data[2],data[3]]);
@@ -86,6 +86,6 @@ mod test{
         data.remove(0);
         let (k,v) = NodeValeCodec.decode(data).expect("decode failed");
         assert_eq!(k,key,"decode key failed");
-        assert_eq!(v.as_slice(),value.as_slice(),"decode value failed")
+        assert_eq!(v.as_slice(),value,"decode value failed")
     }
 }

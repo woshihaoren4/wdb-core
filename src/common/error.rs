@@ -9,7 +9,11 @@ pub enum WDBError{
     #[error("io error")]
     IO(#[from] std::io::Error),
     #[error("block at({0}) abnormal")]
-    BlockAbnormal(u64)
+    BlockAbnormal(u64),
+    #[error("the block is fulled")]
+    BlockFulled,
+    #[error("block[{0}] nonexistence")]
+    BlockNonexistence(u32)
 }
 
 pub type WDBResult<T> = Result<T,WDBError>;

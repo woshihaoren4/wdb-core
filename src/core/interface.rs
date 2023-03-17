@@ -6,7 +6,7 @@ use crate::common::WDBResult;
 //数据区
 #[async_trait::async_trait]
 pub trait BucketDataBase{
-    async fn set(&self,key:u64,value:Vec<u8>)->anyhow::Result<u64>; //插入后返回偏移量
+    async fn set(&self,key:u64,value:&[u8])->anyhow::Result<u64>; //插入后返回偏移量
     async fn get(&self, offset:u64) ->anyhow::Result<Arc<Vec<u8>>>;
 }
 
@@ -20,14 +20,14 @@ pub trait BucketIndex{
 //编解码器
 // #[async_trait::async_trait]
 pub trait Codec:Send+Sync{
-    fn encode(&self,key:u64,value:Arc<Vec<u8>>)->Vec<u8>;
+    fn encode(&self,key:u64,value:&[u8])->Vec<u8>;
     fn decode(&self,data:Vec<u8>)->WDBResult<(u64,Vec<u8>)>;  //返回key value
 }
 
 //区块
 #[async_trait::async_trait]
 pub trait Block:Send+Sync{
-    async fn append(&self,key:u64,value:Arc<Vec<u8>>)->WDBResult<u64>;  //返回偏移量
+    async fn append(&self,key:u64,value:&[u8])->WDBResult<u64>;  //返回偏移量
     async fn get(&self,offset:u64)->WDBResult<(u64,Arc<Vec<u8>>)>;
     async fn traversal(&self)-> Receiver<WDBResult<(u64,u64,Vec<u8>)>>;
     async fn size(&self)->WDBResult<u64>;
