@@ -17,6 +17,20 @@ pub trait BucketIndex{
     async fn find(&self,key:u64)->Option<Vec<u64>>;
 }
 
+//索引在内存中存放的容器，需要不同的数据结构实现
+#[async_trait::async_trait]
+pub trait IndexCollections<T>{
+    async fn push(&self,key:u64,value:T);
+    async fn find(&self,key:&u64)->Option<Vec<T>>;
+}
+
+
+pub trait IndexPersistenceStrategy{
+    fn push(&self)->Option<usize>{
+        return Some(60)
+    }
+}
+
 //编解码器
 // #[async_trait::async_trait]
 pub trait Codec:Send+Sync{
@@ -39,6 +53,8 @@ pub trait Block:Send+Sync{
 pub trait DataBaseBlockManager:Send+Sync{
     async fn init_block(&self)->WDBResult<Vec<(u32,Arc<dyn Block>)>>;
     async fn create_block(&self,block_sn:u32)->WDBResult<Arc<dyn Block>>;
+    async fn get(&self, sn:u32) -> Option<Arc<dyn Block>>;
+
     fn block_size(&self)->u32;
 }
 
@@ -48,5 +64,5 @@ pub trait NodeCache:Send+Sync{
     async fn get(&self, offset: u64) -> Option<Arc<Vec<u8>>>;
     async fn set(&self, offset: u64, value:Arc<Vec<u8>>);
     async fn reset(&self);
-
 }
+

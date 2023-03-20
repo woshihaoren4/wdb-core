@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use wd_tools::{PFArc, PFOk};
+use tokio::sync::RwLock;
+use wd_tools::{PFArc, PFOk, PFSome};
 use crate::common::WDBResult;
 use crate::core::{Block, Codec, DataBaseBlockManager};
 use crate::local_store::FileBlock;
@@ -8,12 +10,13 @@ use crate::local_store::FileBlock;
 pub struct FileBlockManage{
     size: u32,
     dir: String,
-    codec: Arc<dyn Codec>
+    codec: Arc<dyn Codec>,
+    blocks: Arc<RwLock<HashMap<u32,Arc<dyn Block>>>>,
 }
 
 impl FileBlockManage{
     pub fn new(dir:String,size:u32,codec: Arc<dyn Codec>)->Self{
-        Self{size,dir,codec}
+        Self{size,dir,codec,blocks:Default::default()}
     }
     pub fn search_dir(dir:String)->WDBResult<Vec<u32>>{
         let mut list = vec![];
@@ -45,6 +48,16 @@ impl FileBlockManage{
     pub fn path(&self,sn:u32)->String{
         format!("{}/{}.wdb", self.dir, sn)
     }
+
+    async fn insert_block(&self,sn:u32,block:Arc<dyn Block>){
+        let mut w = self.blocks.write().await;
+        w.insert(sn,block);
+    }
+    async fn get_block(&self,sn:u32)->Option<Arc<dyn Block>>{
+        let r = self.blocks.read().await;
+        let b = r.get(&sn)?;b.clone().some()
+    }
+
 }
 
 #[async_trait::async_trait]
@@ -60,7 +73,14 @@ impl DataBaseBlockManager for FileBlockManage {
     }
 
     async fn create_block(&self, block_sn: u32) -> WDBResult<Arc<dyn Block>> {
-       let block = FileBlock::new(self.path(block_sn), self.codec.clone(),self.size).await?;Ok(Arc::new(block))
+       let block = FileBlock::new(self.path(block_sn), self.codec.clone(),self.size).await?;
+        let block = block.arc();
+        self.insert_block(block_sn,block.clone()).await;
+        Ok(block)
+    }
+
+    async fn get(&self, sn: u32) -> Option<Arc<dyn Block>> {
+        self.get_block(sn).await
     }
 
     fn block_size(&self) -> u32 {

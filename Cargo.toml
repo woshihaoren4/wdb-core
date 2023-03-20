@@ -13,3 +13,4 @@ async-trait = "0.1.66"
 thiserror = "1.0.39"
 async-channel = "1.8.0"
 wd_log = "0.1.5"
+nix = {version = "0.26.2",features = ["mman"]}
