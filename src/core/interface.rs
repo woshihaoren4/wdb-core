@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use async_channel::Receiver;
+use tokio::io;
 use crate::common::WDBResult;
 
 //数据区
@@ -19,15 +20,38 @@ pub trait BucketIndex{
 
 //索引在内存中存放的容器，需要不同的数据结构实现
 #[async_trait::async_trait]
-pub trait IndexCollections<T>{
-    async fn push(&self,key:u64,value:T);
-    async fn find(&self,key:&u64)->Option<Vec<T>>;
+pub trait IndexCollections:Send+Sync{
+    async fn push(&self,key:u64,value:u64);
+    async fn find(&self,key:&u64)->Option<Vec<u64>>;
+    async fn update_index(&self,key:u64,offset:u64); //更新索引位置
+    async fn find_index(&self,key:&u64)->Option<u64>; //查询索引的位置
 }
 
+pub enum IndexModuleKind{
+    KV,
+    TIME,
+    LOG
+}
 
-pub trait IndexPersistenceStrategy{
-    fn push(&self)->Option<usize>{
-        return Some(60)
+pub trait IndexModule:Send+Sync {
+    fn module(&self)->IndexModuleKind {  //1:kv库 2:时序库 3:日志库
+        return IndexModuleKind::KV
+    }
+
+    fn status(&self)->bool{
+        return true;
+    }
+    /// status: 当前已固化的块
+    /// end: 可固化的块
+    fn persistence(&self,start:u32,end:u32) ->Option<u64>{
+        return if end > start {
+            None
+        }else {
+            Some(60)
+        }
+    }
+    fn error_handler(&self,err:io::Error)->bool{
+        return false
     }
 }
 
@@ -47,6 +71,7 @@ pub trait Block:Send+Sync{
     async fn size(&self)->WDBResult<u64>;
     // async fn restore(&self, position:u64) ->anyhow::Result<()>;  //恢复数据
     fn path(&self)->String;
+    fn status(&self)->u8;  //1:可用 2：固化
 }
 //区块管理器
 #[async_trait::async_trait]

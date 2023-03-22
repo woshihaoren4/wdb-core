@@ -43,18 +43,17 @@ impl FileBlock {
             match file.read(&mut len_buf).await{
                 Ok(o) => {
                     if o == 0 {
-                        sender.clone();
-                        return ().ok();
+                        break
                     }else if o != 4 {
                         sender.send(WDBError::BlockAbnormal(i).err()).await?;
-                        return ().ok();
+                        break
                     }
                     o
                 }
                 Err(e) => {
                     wd_log::log_error_ln!("BlockAbnormal {}",e);
                     sender.send(WDBError::BlockAbnormal(i).err()).await?;
-                    return ().ok();
+                    break
                 }
             };
             let val_len = u32::from_le_bytes([len_buf[0], len_buf[1], len_buf[2], len_buf[3]]);
@@ -62,26 +61,26 @@ impl FileBlock {
 
                 wd_log::log_error_ln!("BlockAbnormal node len({}) > max size({})",val_len,size);
                 sender.send(WDBError::BlockAbnormal(i).err()).await?;
-                return ().ok();
+                break
             }
             if val_len < 8 {
                 wd_log::log_error_ln!("BlockAbnormal node len({}) < min size(8)",val_len);
                 sender.send(WDBError::BlockAbnormal(i).err()).await?;
-                return ().ok();
+                break
             }
             let mut buf = vec![0;val_len as usize];
             let len = match file.read(&mut buf).await{
                 Ok(o) => {
                     if o != val_len as usize {
                         sender.send(WDBError::BlockAbnormal(i).err()).await?;
-                        return ().ok();
+                        break
                     }
                     o
                 }
                 Err(e) => {
                     wd_log::log_error_ln!("BlockAbnormal {}",e);
                     sender.send(WDBError::BlockAbnormal(i).err()).await?;
-                    return ().ok();
+                    break
                 }
             };
             if len == 8 {
@@ -100,6 +99,7 @@ impl FileBlock {
             }
             i += val_len as u64 + 4;
         }
+        sender.close();
         return ().ok()
     }
 
@@ -130,6 +130,7 @@ impl FileBlock {
         let result = offset.deref().clone() as u64;
         self.buffer.send(buf).await.expect("FileBlock.buffer_append failed");
         *(offset.deref_mut()) += len;
+
         return result.ok();
     }
 
@@ -158,6 +159,7 @@ impl FileBlock {
                 }
                 drop(file);
             }
+            //转变为文件映射
         });
         return sender;
     }
@@ -193,6 +195,10 @@ impl Block for FileBlock{
 
     fn path(&self) -> String {
         self.path.clone()
+    }
+
+    fn status(&self) -> u8 {
+        1
     }
 
     // async fn restore(&self,_position:u64) -> anyhow::Result<()> {
