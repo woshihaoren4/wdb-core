@@ -1,10 +1,8 @@
 use std::num::NonZeroUsize;
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{RawFd};
 use std::os::raw::c_void;
-use std::sync::{Arc, Mutex};
 use nix::sys::mman::{MapFlags, MmapAdvise, ProtFlags};
-use tokio::fs::File;
-use wd_tools::{PFArc, PFOk};
+use wd_tools::{ PFOk};
 
 #[derive(Debug,Default)]
 pub struct MemoryFileReadOnly<'a>{

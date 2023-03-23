@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use async_channel::Receiver;
 use tokio::io;
@@ -8,7 +7,7 @@ use crate::common::WDBResult;
 #[async_trait::async_trait]
 pub trait BucketDataBase{
     async fn set(&self,key:u64,value:&[u8])->anyhow::Result<u64>; //插入后返回偏移量
-    async fn get(&self, offset:u64) ->anyhow::Result<Arc<Vec<u8>>>;
+    async fn get(&self, offset:u64) ->anyhow::Result<Vec<u8>>;
 }
 
 //索引
@@ -50,7 +49,7 @@ pub trait IndexModule:Send+Sync {
             Some(60)
         }
     }
-    fn error_handler(&self,err:io::Error)->bool{
+    fn error_handler(&self,_err:io::Error)->bool{
         return false
     }
 }
@@ -60,15 +59,16 @@ pub trait IndexModule:Send+Sync {
 pub trait Codec:Send+Sync{
     fn encode(&self,key:u64,value:&[u8])->Vec<u8>;
     fn decode(&self,data:Vec<u8>)->WDBResult<(u64,Vec<u8>)>;  //返回key value
+    fn check(&self,data:&[u8])->WDBResult<()>;
 }
 
 //区块
 #[async_trait::async_trait]
 pub trait Block:Send+Sync{
     async fn append(&self,key:u64,value:&[u8])->WDBResult<u64>;  //返回偏移量
-    async fn get(&self,offset:u64)->WDBResult<(u64,Arc<Vec<u8>>)>;
+    async fn get(&self,offset:u64)->WDBResult<(u64,Vec<u8>)>;
     async fn traversal(&self)-> Receiver<WDBResult<(u64,u64,Vec<u8>)>>;
-    async fn size(&self)->WDBResult<u64>;
+    async fn size(&self)->usize;
     // async fn restore(&self, position:u64) ->anyhow::Result<()>;  //恢复数据
     fn path(&self)->String;
     fn status(&self)->u8;  //1:可用 2：固化

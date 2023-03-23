@@ -6,8 +6,8 @@ use tokio::fs::File;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use wd_tools::{PFErr, PFOk};
 use crate::common;
-use crate::common::{MemoryFileReadOnly, WDBError};
-use crate::core::{BucketIndex, IndexCollections, DataBaseBlockManager, IndexModule, IndexModuleKind};
+use crate::common::{ WDBError};
+use crate::core::{ IndexCollections, DataBaseBlockManager, IndexModule, IndexModuleKind};
 
 pub struct LocalFileIndex{
     inner:Arc<dyn IndexCollections>, //index offset,value
@@ -91,7 +91,7 @@ impl LocalFileIndex {
             //开始固化
             let receiver = block.traversal().await;
 
-            while !receiver.is_closed() {
+            while !receiver.is_closed() || !receiver.is_empty() {
                 let data = if let Ok(o) = receiver.recv().await {
                     o
                 }else{continue};
@@ -129,7 +129,7 @@ impl LocalFileIndex {
                 }
             }
             // receiver.close();
-            if let Err(e) = LocalFileIndex::write_block(&mut file,sn).await {
+            if let Err(_e) = LocalFileIndex::write_block(&mut file,sn).await {
                 wd_log::log_error_ln!("cache_block_to_file seek fa")
             }
         }
@@ -146,7 +146,7 @@ impl LocalFileIndex {
         file.write_all(buf.as_slice()).await
     }
     async fn write_block(file:&mut File,sn:u32)->io::Result<()>{
-        let mut buf = sn.to_be_bytes().to_vec();
+        let buf = sn.to_be_bytes().to_vec();
         file.seek(SeekFrom::Start(0)).await?;
         file.write_all(buf.as_slice()).await
     }

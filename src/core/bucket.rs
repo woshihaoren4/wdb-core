@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use crate::core::{BucketDataBase, BucketIndex};
-use wd_tools::{PFArc, PFOk};
+use wd_tools::{ PFOk};
 
 pub struct Bucket{
     db: Arc<dyn BucketDataBase>,
@@ -13,7 +13,7 @@ impl Bucket {
         // self.wal.append(key,offset).await?;
         self.index.push(key,offset);offset.ok()
     }
-    pub async fn find_raw(&self,key:u64)->anyhow::Result<Vec<(u64,Arc<Vec<u8>>)>>{
+    pub async fn find_raw(&self,key:u64)->anyhow::Result<Vec<(u64,Vec<u8>)>>{
         let offset = match self.index.find(key).await {
             None => return Vec::new().ok(),
             Some(s) => {s}

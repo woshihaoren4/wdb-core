@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use wd_tools::{MD5, PFBox, PFErr, PFOk};
+use wd_tools::{MD5, PFErr, PFOk};
 use crate::common::{WDBError, WDBResult};
 use crate::core::Codec;
 
@@ -7,7 +6,7 @@ use crate::core::Codec;
 pub struct NodeValeCodec;
 
 impl NodeValeCodec{
-    pub fn simple_md5(mut src:&[u8]) ->Vec<u8>{
+    pub fn simple_md5(src:&[u8]) ->Vec<u8>{
         let mut src = src.md5();
         let len = src.len() - 1;
         if len < 8 {
@@ -26,7 +25,7 @@ impl NodeValeCodec{
 
 // #[async_trait::async_trait]
 impl Codec for NodeValeCodec {
-     fn encode(&self, key: u64, mut value: &[u8]) -> Vec<u8> {
+     fn encode(&self, key: u64,value: &[u8]) -> Vec<u8> {
         let mut key_buf = key.to_le_bytes().to_vec();
         let mut sign_buf = if value.is_empty(){
             Vec::new()
@@ -42,7 +41,7 @@ impl Codec for NodeValeCodec {
         return buf
     }
 
-     fn decode(&self, mut data: Vec<u8>) -> WDBResult<(u64, Vec<u8>)> {
+     fn decode(&self, data: Vec<u8>) -> WDBResult<(u64, Vec<u8>)> {
         let len = data.len();
         if len < 8 {
             return WDBError::DecodeNodeValueLengthError(8).err()
@@ -64,11 +63,32 @@ impl Codec for NodeValeCodec {
         // }
         return (key,data[8..len-8].to_vec()).ok()
     }
+
+    fn check(&self, data: &[u8]) -> WDBResult<()> {
+        let len = data.len();
+        if len < 8 {
+            return WDBError::DecodeNodeValueLengthError(8).err()
+        }
+        if len == 8 {
+            return ().ok()
+        };
+        if len <= 16 {
+            return WDBError::DecodeNodeValueLengthError(16).err()
+        }
+        let sing = NodeValeCodec::simple_md5(&data[8..len-8]);
+        if sing != &data[len-8..] {
+            return WDBError::DecodeNodeValueCheckFailed.err()
+        }
+        // for _ in 0..8 {
+        //     data.pop();
+        //     data.remove(0);
+        // }
+        return ().ok()
+    }
 }
 
 #[cfg(test)]
 mod test{
-    use wd_tools::PFArc;
     use crate::core::Codec;
     use super::NodeValeCodec;
     #[test]

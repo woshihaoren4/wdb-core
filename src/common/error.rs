@@ -13,7 +13,11 @@ pub enum WDBError{
     #[error("the block is fulled")]
     BlockFulled,
     #[error("block[{0}] nonexistence")]
-    BlockNonexistence(u32)
+    BlockNonexistence(u32),
+    #[error("unknown error")]
+    Unknown(#[from] anyhow::Error),
+    #[error("not found,The data file may be corrupted")]
+    NotFound
 }
 
 pub type WDBResult<T> = Result<T,WDBError>;
