@@ -1,7 +1,7 @@
 use thiserror::Error;
 
-#[derive(Debug,Error)]
-pub enum WDBError{
+#[derive(Debug, Error)]
+pub enum WDBError {
     #[error("decode node value unexpect length({0})")]
     DecodeNodeValueLengthError(u32),
     #[error("decode node value check failed, data may be tampered with")]
@@ -17,7 +17,7 @@ pub enum WDBError{
     #[error("unknown error")]
     Unknown(#[from] anyhow::Error),
     #[error("not found,The data file may be corrupted")]
-    NotFound
+    NotFound,
 }
 
-pub type WDBResult<T> = Result<T,WDBError>;
+pub type WDBResult<T> = Result<T, WDBError>;
