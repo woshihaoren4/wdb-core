@@ -1,5 +1,5 @@
 use crate::common;
-use crate::common::WDBError;
+use crate::common::{WDBError, WDBResult};
 use crate::core::{BucketIndex, DataBaseBlockManager, IndexCollections, IndexModule, IndexModuleKind};
 use std::io;
 use std::io::SeekFrom;
@@ -31,9 +31,11 @@ impl LocalFileIndex {
             sn,
             file,
             inner.clone(),
-            bm,
+            bm.clone(),
             ps,
         ));
+        //将没固化的索引扫描出来
+        LocalFileIndex::scan_index_from_file(sn,inner.clone(),bm).await?;
         Self { inner }.ok()
     }
 
@@ -76,17 +78,20 @@ impl LocalFileIndex {
         (sn, file).ok()
     }
     async fn parse_index_from_mf(offset: u64, buf: &[u8], index: Arc<dyn IndexCollections>) {
-        let mut i = 0;
-        let len = buf.len() as u64;
+        let offset = offset as usize;
+        let mut i = 0usize;
+        let len = buf.len();
+        println!("i:{} ---> len:{}",i,len);
         while i + 16 < len {
             let key = u64::from_be_bytes([
-                buf[0], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8],
+                buf[i+0], buf[i+1], buf[i+2], buf[i+3], buf[i+4], buf[i+5], buf[i+6], buf[i+7],
             ]);
             let value = u64::from_be_bytes([
-                buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16],
+                buf[i+8], buf[i+9], buf[i+10], buf[i+11], buf[i+12], buf[i+13], buf[i+14], buf[i+15],
             ]);
             let index_offset = i + offset;
-            index.push(key, value, index_offset).await;
+            println!("parse_index_from_mf {}[{}]--->{}",i,key,value);
+            index.push(key, value, index_offset as u64).await;
             // index.update_index(key,index_offset).await;
 
             i += 16;
@@ -146,11 +151,8 @@ impl LocalFileIndex {
 
                 let result = match ps.module() {
                     IndexModuleKind::KV | IndexModuleKind::FILE | IndexModuleKind::TIME => {
-                        if let Some(index_offset) = index.find_index(&k).await {
-                            LocalFileIndex::write(&mut file, index_offset, k, offset, false).await
-                        } else {
-                            LocalFileIndex::write(&mut file, 0, k, offset, true).await
-                        }
+                        let index_offset = index.find_index(&k).await.unwrap_or(0);
+                        LocalFileIndex::write(&mut file, index_offset, k, offset, index_offset == 0).await
                     }
                     IndexModuleKind::LOG => {
                         //不需要处理
@@ -172,6 +174,46 @@ impl LocalFileIndex {
             }
         }
     }
+
+    async fn scan_index_from_file(
+        start: u32,
+        index: Arc<dyn IndexCollections>,
+        bm: Arc<dyn DataBaseBlockManager>,
+    ) -> WDBResult<()> {
+        let size = bm.block_size() as u64;
+        //判断是否有需要固化的内容
+        let mut sn = start;
+        if start == u32::MAX {
+            sn = 0;
+        } else {
+            sn += 1;
+        }
+        loop {
+            let block = bm.get(sn).await;
+
+            if block.is_none() {
+                break
+            }
+            let block = block.unwrap();
+
+            //开始扫描
+            let receiver = block.traversal().await;
+
+            while !receiver.is_closed() || !receiver.is_empty() {
+                let (mut offset, k, _v) =if let Ok(o) = receiver.recv().await {
+                    o
+                } else {
+                    continue;
+                }?;
+                offset += size * sn as u64;
+                index.push(k,offset,0).await;
+            }
+            receiver.close();
+            sn += 1;
+        }
+        Ok(())
+    }
+
     async fn write(
         file: &mut File,
         start_pos: u64,
@@ -199,17 +241,18 @@ impl LocalFileIndex {
 #[async_trait::async_trait]
 impl BucketIndex for LocalFileIndex{
     async fn push(&self, key: u64, offset: u64) {
-        todo!()
+        self.inner.push(key,offset,0).await;
     }
 
-    async fn find(&self, key: u64) -> Option<Vec<u64>> {
-        todo!()
+    async fn find(&self, key: &u64) -> Option<u64> {
+        self.inner.find(key).await
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::core::DataBaseBlockManager;
+    use std::future::Future;
+    use crate::core::{BucketIndex, DataBaseBlockManager};
     use crate::local_index::{IndexCollRWMap, IndexModuleImpl, LocalFileIndex};
     use crate::local_store::{FileBlockManage, NodeValeCodec};
     use std::sync::Arc;
@@ -237,6 +280,12 @@ mod test {
             .await
             .expect("index new failed");
         println!("index create over");
-        tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await
+        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+        for i in 0..10 {
+            let offset = index.find(&i).await;
+            println!("key[{}] ---> {:?}",i,offset);
+        }
     }
+
 }

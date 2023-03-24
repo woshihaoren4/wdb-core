@@ -10,20 +10,15 @@ pub struct Bucket {
 impl Bucket {
     pub async fn set_raw(&self, key: u64, value: Vec<u8>) -> anyhow::Result<u64> {
         let offset = self.db.set(key, value.as_slice()).await?;
-        // self.wal.append(key,offset).await?;
         self.index.push(key, offset);
         offset.ok()
     }
-    pub async fn find_raw(&self, key: u64) -> anyhow::Result<Vec<(u64, Vec<u8>)>> {
+    pub async fn find_raw(&self, key: &u64) -> anyhow::Result<Vec<u8>> {
         let offset = match self.index.find(key).await {
             None => return Vec::new().ok(),
             Some(s) => s,
         };
-        let mut res = vec![];
-        for i in offset.into_iter() {
-            let data = self.db.get(i).await?;
-            res.push((i, data))
-        }
-        return res.ok();
+        let data = self.db.get(offset).await?;
+        return data.ok()
     }
 }

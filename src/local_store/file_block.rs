@@ -456,7 +456,7 @@ mod test {
     #[tokio::test]
     async fn test_file_block_scan() {
         let block = FileBlock::new(
-            "./database/1.wdb".into(),
+            "./database/0.wdb".into(),
             Arc::new(NodeValeCodec),
             1024 * 1024,
             true,

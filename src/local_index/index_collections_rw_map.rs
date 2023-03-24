@@ -6,14 +6,24 @@ use wd_tools::PFSome;
 
 #[derive(Debug, Default)]
 pub struct IndexCollRWMap {
-    inner: Arc<RwLock<HashMap<u64, (u64, u64)>>>,
+    inner: Arc<RwLock<HashMap<u64, (u64, u64)>>>,  //key value offset
 }
 
 #[async_trait::async_trait]
 impl IndexCollections for IndexCollRWMap {
     async fn push(&self, key: u64, value: u64, offset: u64) {
         let mut w = self.inner.write().await;
+        if offset != 0 {
+            w.insert(key, (value, offset));
+            return;
+        }
+        if let Some((_,old_offset)) = w.get(&key) {
+            let offset = old_offset.clone();
+            w.insert(key,(value,offset));
+            return;
+        }
         w.insert(key, (value, offset));
+
     }
 
     async fn find(&self, key: &u64) -> Option<u64> {

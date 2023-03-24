@@ -14,7 +14,7 @@ pub trait BucketDataBase {
 #[async_trait::async_trait]
 pub trait BucketIndex {
     async fn push(&self, key: u64, offset: u64);
-    async fn find(&self, key: u64) -> Option<Vec<u64>>;
+    async fn find(&self, key: &u64) -> Option<u64>;
 }
 
 //索引在内存中存放的容器，需要不同的数据结构实现
