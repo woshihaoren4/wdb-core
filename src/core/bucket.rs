@@ -8,6 +8,10 @@ pub struct Bucket {
 }
 
 impl Bucket {
+    pub fn new(db: Arc<dyn BucketDataBase>,index: Arc<dyn BucketIndex>)->Self{
+        Self{db,index}
+    }
+
     pub async fn set_raw(&self, key: u64, value: Vec<u8>) -> anyhow::Result<u64> {
         let offset = self.db.set(key, value.as_slice()).await?;
         self.index.push(key, offset);

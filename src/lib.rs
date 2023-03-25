@@ -2,6 +2,7 @@ mod common;
 mod core;
 mod local_index;
 mod local_store;
+mod db;
 
 #[cfg(test)]
 mod tests {
