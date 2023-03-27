@@ -12,12 +12,12 @@ impl Bucket {
         Self{db,index}
     }
 
-    pub async fn set_raw(&self, key: u64, value: Vec<u8>) -> anyhow::Result<u64> {
-        let offset = self.db.set(key, value.as_slice()).await?;
-        self.index.push(key, offset);
+    pub async fn set<A:AsRef<[u8]>>(&self, key: u64, value:A ) -> anyhow::Result<u64> {
+        let offset = self.db.set(key, value.as_ref()).await?;
+        self.index.push(key, offset).await;
         offset.ok()
     }
-    pub async fn find_raw(&self, key: &u64) -> anyhow::Result<Vec<u8>> {
+    pub async fn find(&self, key: &u64) -> anyhow::Result<Vec<u8>> {
         let offset = match self.index.find(key).await {
             None => return Vec::new().ok(),
             Some(s) => s,
