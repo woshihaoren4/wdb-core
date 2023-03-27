@@ -1,54 +1,91 @@
-use trait_async::trait_async;
-use anyhow::Result;
-use wd_event::Context;
-use serde_json::Value;
-use crate::config::Config;
+use crate::common::WDBResult;
+use async_channel::Receiver;
 use std::sync::Arc;
+use tokio::io;
 
-pub trait ToBytes {
-    fn to_bytes(&self)->Vec<u8>;
-}
-pub trait Tags{
-    fn tags(&self)->Vec<(String,i64)>;
-}
-pub trait CallBack{
-    fn call_back(&mut self,_: Context);
+//数据区
+#[async_trait::async_trait]
+pub trait BucketDataBase {
+    async fn set(&self, key: u64, value: &[u8]) -> anyhow::Result<u64>; //插入后返回偏移量
+    async fn get(&self, offset: u64) -> anyhow::Result<Vec<u8>>;
 }
 
-pub trait Element: ToBytes +Tags+CallBack+Send+Sync{
+//索引
+#[async_trait::async_trait]
+pub trait BucketIndex {
+    async fn push(&self, key: u64, offset: u64);
+    async fn find(&self, key: &u64) -> Option<u64>;
 }
 
-impl<T> Element for T
-    where T: ToBytes +Tags+CallBack+Send+Sync
-{}
-
-// type Element = dyn Serialization + From<Vec<u8>> + Tags + CallBack + Send + Sync;
-
-#[trait_async]
-pub trait Bucket<T>
-where T:Element+From<Vec<u8>>
-{
-    async fn init(&self,_:Context)->Result<BucketMeta>;
-    async fn close(&self,_:Context)->Result<()>;
-
-    async fn add(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
-    async fn delete(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
-    async fn update(&self,_: Context, elms:Vec<T>) ->Result<Vec<T>>;
-    async fn find(&self,_: Context, elms:Vec<Box<dyn Tags>>) ->Result<Vec<T>>;
+//索引在内存中存放的容器，需要不同的数据结构实现
+#[async_trait::async_trait]
+pub trait IndexCollections: Send + Sync {
+    async fn push(&self, key: u64, value: u64, offset: u64);
+    async fn find(&self, key: &u64) -> Option<u64>;
+    async fn update_index(&self, key: u64, offset: u64); //更新索引位置
+    async fn find_index(&self, key: &u64) -> Option<u64>; //查询索引的位置
 }
 
-#[trait_async]
-pub trait BucketBuilder{
-    async fn metadata(&self) ->BuilderMeta;
-    async fn init(&self,_: Context,_: Config) -> Arc<dyn Bucket<Box<dyn Element>>>;
-    async fn build(&self,_: Context,_:Value) -> Arc<dyn Bucket<Box<dyn Element>>>;
+pub enum IndexModuleKind {
+    KV,
+    TIME,
+    LOG,
+    FILE,
 }
 
-#[derive(Default,Hash,Clone)]
-pub struct BucketMeta{
-    pub name:String
+pub trait IndexModule: Send + Sync {
+    fn module(&self) -> IndexModuleKind {
+        //1:kv库 2:时序库 3:日志库
+        return IndexModuleKind::KV;
+    }
+
+    fn status(&self) -> bool {
+        return true;
+    }
+    /// status: 当前已固化的块
+    /// end: 可固化的块
+    fn persistence(&self, start: u32, end: u32) -> Option<u64> {
+        return if end > start { None } else { Some(60) };
+    }
+    fn error_handler(&self, err: io::Error) -> bool {
+        wd_log::log_error_ln!("index to file error:{}", err);
+        return false;
+    }
 }
-#[derive(Default,Hash)]
-pub struct BuilderMeta{
-    pub bucket_type:String,
+
+//编解码器
+// #[async_trait::async_trait]
+pub trait Codec: Send + Sync {
+    fn encode(&self, key: u64, value: &[u8]) -> Vec<u8>;
+    fn decode(&self, data: Vec<u8>) -> WDBResult<(u64, Vec<u8>)>; //返回key value
+    fn check(&self, data: &[u8]) -> WDBResult<()>;
+}
+
+//区块
+#[async_trait::async_trait]
+pub trait Block: Send + Sync {
+    async fn append(&self, key: u64, value: &[u8]) -> WDBResult<u64>; //返回偏移量
+    async fn get(&self, offset: u64) -> WDBResult<(u64, Vec<u8>)>;
+    async fn traversal(&self) -> Receiver<WDBResult<(u64, u64, Vec<u8>)>>;
+    async fn size(&self) -> usize;
+    // async fn restore(&self, position:u64) ->anyhow::Result<()>;  //恢复数据
+    fn path(&self) -> String;
+    fn status(&self) -> u8; //1:可用 2：固化
+}
+//区块管理器
+#[async_trait::async_trait]
+pub trait DataBaseBlockManager: Send + Sync {
+    async fn init_block(&self) -> WDBResult<Vec<(u32, Arc<dyn Block>)>>;
+    async fn create_block(&self, block_sn: u32) -> WDBResult<Arc<dyn Block>>;
+    async fn get(&self, sn: u32) -> Option<Arc<dyn Block>>;
+
+    fn block_size(&self) -> u32;
+}
+
+//node缓存
+#[async_trait::async_trait]
+pub trait NodeCache: Send + Sync {
+    async fn get(&self, offset: u64) -> Option<Arc<Vec<u8>>>;
+    async fn set(&self, offset: u64, value: Arc<Vec<u8>>);
+    async fn reset(&self);
 }

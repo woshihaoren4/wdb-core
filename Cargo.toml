@@ -1,16 +1,17 @@
 [package]
-name = "wd_kv"
+name = "wdb-core"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.18", features = ["full"] }
-trait-async = "0.1.24"
-anyhow = "1.0.57"
-async-channel = "1.6"
-wd_event = "0.3.3"
-serde_json = "1.0.81"
-serde = {version = "1.0.137",features= ["derive"]}
-wd_run = "0.2"
+#wd_tools = {path = "../wd_tools",features = ["point-free","md5","sync"]}
+wd_tools = {version = "0.6.1",features = ["point-free","md5","sync","fs"]}
+tokio = {version = "1.26.0",features = ["macros","sync","rt-multi-thread","fs","io-std","io-util","time"]}
+anyhow = "1.0.69"
+async-trait = "0.1.66"
+thiserror = "1.0.39"
+async-channel = "1.8.0"
+wd_log = "0.1.5"
+nix = {version = "0.26.2",features = ["mman"]}
