@@ -2,3 +2,4 @@
 Cargo.lock
 database
 ./*.wdb
+.idea
