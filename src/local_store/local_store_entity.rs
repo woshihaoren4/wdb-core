@@ -3,12 +3,12 @@ use crate::core::{Block, BucketDataBase, DataBaseBlockManager, NodeCache};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use wd_tools::sync::LessLock;
+use wd_tools::sync::Acl;
 use wd_tools::{PFArc, PFErr, PFOk};
 
 pub struct LocalStoreEntity {
     block_manager: Arc<dyn DataBaseBlockManager>,
-    blocks: LessLock<HashMap<u32, Arc<dyn Block>>>,
+    blocks: Acl<HashMap<u32, Arc<dyn Block>>>,
     sn: Arc<AtomicU32>,
     size: u32,
 }
@@ -36,7 +36,7 @@ impl LocalStoreEntity {
         // LocalStoreEntity::load_block_cache(blocks.get(&sn).unwrap().clone(),cache.clone()).await;
         LocalStoreEntity {
             block_manager,
-            blocks: LessLock::new(blocks),
+            blocks: Acl::new(blocks),
             sn: AtomicU32::new(sn).arc(),
             size,
         }
@@ -75,17 +75,16 @@ impl LocalStoreEntity {
         }
         let sn = self.sn.clone();
         let mg = self.block_manager.clone();
-        let result = self
-            .blocks
-            .async_update(|mut x| async move {
-                if x.get(&(old_sn + 1)).is_some() {
-                    return anyhow::anyhow!("success").err();
-                }
-                let block = mg.create_block(old_sn + 1).await?;
-                x.insert(old_sn + 1, block);
-                return x.ok();
-            })
-            .await;
+        let blocks = self.blocks.share();
+        let result = if blocks.get(&(old_sn + 1)).is_some() {
+            anyhow::anyhow!("success").err()
+        }else{
+            let mut bs = (&*blocks).clone();
+            let block = mg.create_block(old_sn + 1).await?;
+            bs.insert(old_sn + 1, block);
+            self.blocks.set(bs);
+            Ok(())
+        };
         if let Err(err) = result {
             return if err.to_string().eq("success") {
                 ().ok()
